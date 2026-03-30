@@ -18,13 +18,16 @@
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             text-align: center; color: white; display: none; text-shadow: 2px 2px 4px #000; z-index: 20;
         }
-        .skin-controls { pointer-events: auto; background: rgba(255,255,255,0.7); padding: 10px; border-radius: 8px; display: inline-block; border: 2px solid #cc2222;}
+        .controls-panel { pointer-events: auto; background: rgba(255,255,255,0.8); padding: 10px; border-radius: 8px; display: inline-block; border: 2px solid #cc2222;}
+        .controls-row { margin-bottom: 8px; }
+        .controls-row:last-child { margin-bottom: 0; }
         button, input[type="file"] {
             padding: 8px 12px; margin-right: 5px; cursor: pointer;
             background: #cc2222; color: white; border: none; border-radius: 4px; font-weight: bold;
         }
         button:hover { background: #aa1111; }
         input[type="file"] { background: #555; }
+        #toggle-ghost { background: #228b22; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
@@ -32,13 +35,20 @@
 
     <div id="ui-layer">
         <h1>Pagoda Race</h1>
-        <div id="score">Score: 0 | Coins: 0</div>
+        <div id="score">Score: 0 | Coins: 0 | Best: 0</div>
         <div id="powerup-meter">Jetpack: READY (SHIFT) | Board: NEED 20 COINS (Press B)</div>
         <div class="instructions">WASD / Arrows = Move | SPACE = Jump | SHIFT = Fly | B = Buy Board</div>
-        <div class="skin-controls">
-            <span>Upload Body Skin: </span>
-            <input type="file" id="skin-upload" accept="image/*">
-            <button onclick="resetSkin()">Default</button>
+        
+        <div class="controls-panel">
+            <div class="controls-row">
+                <span>Ghost Racer: </span>
+                <button id="toggle-ghost" onclick="toggleGhost()">ON</button>
+            </div>
+            <div class="controls-row">
+                <span>Upload Body Skin: </span>
+                <input type="file" id="skin-upload" accept="image/*">
+                <button onclick="resetSkin()">Default</button>
+            </div>
         </div>
     </div>
 
@@ -50,7 +60,12 @@
     <script>
         // --- 1. GAME SETUP ---
         let score = 0, coinCount = 0, gameSpeed = 0.4, gameOver = false;
+        let ghostEnabled = true;
         
+        // Load High Score from local storage
+        let highScore = localStorage.getItem('pagodaHighScore') || 0;
+        document.getElementById('score').innerText = `Score: 0 | Coins: 0 | Best: ${highScore}`;
+
         const scene = new THREE.Scene();
         scene.fog = new THREE.Fog(0xffeebb, 20, 100); 
 
@@ -69,7 +84,7 @@
         dirLight.position.set(20, 30, 10);
         scene.add(dirLight);
 
-        // --- 2. CHARACTER BUILDER (For Player and Rival) ---
+        // --- 2. CHARACTER BUILDER ---
         function createCharacter(shirtColor) {
             const charGroup = new THREE.Group(); 
             let skinMat = new THREE.MeshLambertMaterial({ color: 0xffcc99 }); 
@@ -81,7 +96,7 @@
 
             const body = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.2, 0.5), shirtMat);
             body.position.y = 1.4; charGroup.add(body);
-            charGroup.bodyMesh = body; // Save reference for skin uploading
+            charGroup.bodyMesh = body; 
 
             const legLGroup = new THREE.Group();
             legLGroup.position.set(-0.25, 0.8, 0); 
@@ -104,7 +119,6 @@
         const pack = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, 0.3), jetpackMat);
         pack.position.set(0, 1.4, 0.4); player.add(pack);
         
-        // Skateboard (Hidden by default)
         const boardMat = new THREE.MeshLambertMaterial({ color: 0x00ffcc });
         const skateboard = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.15, 1.8), boardMat);
         skateboard.position.y = -0.05;
@@ -113,13 +127,14 @@
         
         scene.add(player);
 
-        // RIVAL AI (Ghost Racer)
-        const rival = createCharacter(0x3333ff); // Blue shirt
-        rival.position.set(3, 0, -5); // Start slightly ahead in right lane
+        // RIVAL AI
+        const rival = createCharacter(0x3333ff); 
+        rival.position.set(3, 0, -5); 
         scene.add(rival);
         let rivalLane = 2;
         let rivalMoveTimer = 0;
 
+        // --- UI ACTIONS ---
         let playerShirtMat = new THREE.MeshLambertMaterial({ color: 0x2288cc });
         document.getElementById('skin-upload').addEventListener('change', function(e) {
             const file = e.target.files[0];
@@ -137,6 +152,14 @@
             reader.readAsDataURL(file);
         });
         window.resetSkin = () => player.bodyMesh.material = playerShirtMat;
+
+        window.toggleGhost = () => {
+            ghostEnabled = !ghostEnabled;
+            const btn = document.getElementById('toggle-ghost');
+            btn.innerText = ghostEnabled ? "ON" : "OFF";
+            btn.style.background = ghostEnabled ? "#228b22" : "#888888";
+            rival.visible = ghostEnabled;
+        };
 
         // --- 3. THE ENVIRONMENT & DECORATIONS ---
         const ground = new THREE.Mesh(
@@ -170,7 +193,6 @@
             
             let rand = Math.random();
             if (rand < 0.4) {
-                // Spawn Pagoda
                 let tiers = 2 + Math.floor(Math.random() * 3); 
                 let currentY = 0;
                 for(let i=0; i<tiers; i++) {
@@ -181,12 +203,10 @@
                 let side = Math.random() > 0.5 ? 1 : -1;
                 decorGroup.position.set((7 + Math.random() * 4) * side, 0, 0);
             } else if (rand < 0.7) {
-                // Spawn Archway (Paifang) over the track
                 let pillarL = new THREE.Mesh(archPillarGeo, matRed); pillarL.position.set(-5, 3, 0); decorGroup.add(pillarL);
                 let pillarR = new THREE.Mesh(archPillarGeo, matRed); pillarR.position.set(5, 3, 0); decorGroup.add(pillarR);
                 let topBeam = new THREE.Mesh(archTopGeo, matWood); topBeam.position.set(0, 6.2, 0); decorGroup.add(topBeam);
             } else {
-                // Spawn Bamboo Grove
                 let side = Math.random() > 0.5 ? 1 : -1;
                 for(let i=0; i<5; i++) {
                     let bamboo = new THREE.Mesh(bambooGeo, matBamboo);
@@ -226,7 +246,13 @@
         const coinMat = new THREE.MeshLambertMaterial({ color: 0xffd700 });
 
         function updateUI() {
-            document.getElementById('score').innerText = `Score: ${score} | Coins: ${coinCount}`;
+            // Save high score if beaten
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('pagodaHighScore', highScore);
+            }
+
+            document.getElementById('score').innerText = `Score: ${score} | Coins: ${coinCount} | Best: ${highScore}`;
             
             let jetStatus = jetpackCooldown > 0 ? "RECHARGING" : "READY";
             let boardStatus = hasBoard ? "EQUIPPED" : (coinCount >= 20 ? "PRESS 'B' TO BUY" : "NEED 20 COINS");
@@ -292,13 +318,8 @@
                 document.getElementById('powerup-meter').innerText = "Jetpack: ACTIVE!";
             }
 
-            // BUY BOARD
             if (key === 'b' && coinCount >= 20 && !hasBoard) {
-                coinCount -= 20;
-                hasBoard = true;
-                skateboard.visible = true;
-                player.position.y = 0.2; // Lift player up slightly onto the board
-                updateUI();
+                coinCount -= 20; hasBoard = true; skateboard.visible = true; player.position.y = 0.2; updateUI();
             }
         });
 
@@ -328,30 +349,27 @@
             if (gameOver) return;
             requestAnimationFrame(animate);
 
-            // Player Movement
             player.position.x += (laneXPositions[currentLane] - player.position.x) * 0.2; 
             
-            // I-Frames Flashing
             if (iFrames > 0) {
                 iFrames--;
-                player.visible = (iFrames % 10 < 5); // Flicker
+                player.visible = (iFrames % 10 < 5); 
             } else {
                 player.visible = true;
             }
 
-            // AI RIVAL MOVEMENT
-            rival.position.x += (laneXPositions[rivalLane] - rival.position.x) * 0.1;
-            // Bobbing animation for Rival
-            rival.position.y = Math.abs(Math.sin(Date.now() * 0.01)) * 0.2;
-            rival.legL.rotation.x = Math.sin(Date.now() * 0.015) * 0.6;
-            rival.legR.rotation.x = Math.sin(Date.now() * 0.015 + Math.PI) * 0.6;
-            
-            // Rival randomly changes lanes to dodge
-            rivalMoveTimer--;
-            if (rivalMoveTimer <= 0) {
-                let dir = Math.random() > 0.5 ? 1 : -1;
-                if (rivalLane + dir >= 0 && rivalLane + dir <= 2) rivalLane += dir;
-                rivalMoveTimer = 50 + Math.random() * 100; // Wait a bit before moving again
+            if (ghostEnabled) {
+                rival.position.x += (laneXPositions[rivalLane] - rival.position.x) * 0.1;
+                rival.position.y = Math.abs(Math.sin(Date.now() * 0.01)) * 0.2;
+                rival.legL.rotation.x = Math.sin(Date.now() * 0.015) * 0.6;
+                rival.legR.rotation.x = Math.sin(Date.now() * 0.015 + Math.PI) * 0.6;
+                
+                rivalMoveTimer--;
+                if (rivalMoveTimer <= 0) {
+                    let dir = Math.random() > 0.5 ? 1 : -1;
+                    if (rivalLane + dir >= 0 && rivalLane + dir <= 2) rivalLane += dir;
+                    rivalMoveTimer = 50 + Math.random() * 100; 
+                }
             }
 
             if (jetpackActive) {
@@ -397,7 +415,6 @@
                 let obs = obstacles[i];
                 obs.position.z += obs.isTrain ? gameSpeed * 1.6 : gameSpeed;
 
-                // Collision
                 if (obs.position.z > -0.8 && obs.position.z < 0.8 && player.position.y < 3.0 && iFrames === 0) { 
                     if (Math.abs(player.position.x - obs.position.x) < 0.8) { 
                         let hit = false;
@@ -407,19 +424,10 @@
                         
                         if (hit) {
                             if (hasBoard) {
-                                // Break the board, save the player
-                                hasBoard = false;
-                                skateboard.visible = false;
-                                iFrames = 60; // 1 second of invincibility
-                                player.position.y = 0; // Drop back to ground
-                                updateUI();
-                                
-                                // Optional: visually destroy the obstacle
-                                scene.remove(obs); obstacles.splice(i, 1); i--;
-                                continue; 
+                                hasBoard = false; skateboard.visible = false; iFrames = 60; player.position.y = 0; updateUI();
+                                scene.remove(obs); obstacles.splice(i, 1); i--; continue; 
                             } else {
-                                gameOver = true; 
-                                document.getElementById('game-over').style.display = 'block';
+                                gameOver = true; document.getElementById('game-over').style.display = 'block';
                             }
                         }
                     }
